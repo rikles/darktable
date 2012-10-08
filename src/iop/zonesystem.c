@@ -492,7 +492,7 @@ void gui_cleanup(struct dt_iop_module_t *self)
 
 #define DT_ZONESYSTEM_INSET 5
 #define DT_ZONESYSTEM_BAR_SPLIT_WIDTH 0.0
-#define DT_ZONESYSTEM_REFERENCE_SPLIT 0.30
+#define DT_ZONESYSTEM_REFERENCE_SPLIT 0.35
 static gboolean
 dt_iop_zonesystem_bar_expose (GtkWidget *widget, GdkEventExpose *event, dt_iop_module_t *self)
 {
@@ -519,13 +519,14 @@ dt_iop_zonesystem_bar_expose (GtkWidget *widget, GdkEventExpose *event, dt_iop_m
   /* render the bars */
   float zonemap[MAX_ZONE_SYSTEM_SIZE]= {0};
   _iop_zonesystem_calculate_zonemap (p, zonemap);
-  float s=(1./(p->size-2));
+  const float zc=(1./(p->size-2));
+  const float zs=(1./(p->size-1));
   cairo_set_antialias (cr, CAIRO_ANTIALIAS_NONE);
   for(int i=0; i<p->size-1; i++)
   {
     /* draw the reference zone */
-    float z=s*i;
-    cairo_rectangle (cr,(1./(p->size-1))*i,0,(1./(p->size-1)),DT_ZONESYSTEM_REFERENCE_SPLIT-DT_ZONESYSTEM_BAR_SPLIT_WIDTH);
+    float z=zc*i;
+    cairo_rectangle (cr,zs*i,0,zs,DT_ZONESYSTEM_REFERENCE_SPLIT-DT_ZONESYSTEM_BAR_SPLIT_WIDTH);
     cairo_set_source_rgb (cr, z, z, z);
     cairo_fill (cr);
 
@@ -535,7 +536,6 @@ dt_iop_zonesystem_bar_expose (GtkWidget *widget, GdkEventExpose *event, dt_iop_m
                      (zonemap[i+1]-zonemap[i]),1.0-DT_ZONESYSTEM_REFERENCE_SPLIT);
     cairo_set_source_rgb (cr, z, z, z);
     cairo_fill (cr);
-
   }
   cairo_set_antialias (cr, CAIRO_ANTIALIAS_DEFAULT);
   cairo_restore (cr);
@@ -557,8 +557,9 @@ dt_iop_zonesystem_bar_expose (GtkWidget *widget, GdkEventExpose *event, dt_iop_m
     float nzw=zonemap[k+1]-zonemap[k];
     float pzw=zonemap[k]-zonemap[k-1];
     if (
-      ( ((g->mouse_x/width) > (zonemap[k]-(pzw/2.0))) &&
-        ((g->mouse_x/width) < (zonemap[k]+(nzw/2.0))) ) ||
+      ( (g->mouse_x > 0) &&
+        ((g->mouse_x/width) > (zonemap[k]-(pzw/2.0))) &&
+        ((g->mouse_x/width) < (zonemap[k]+(nzw/2.0)))) ||
       p->zone[k] != -1)
     {
       gboolean is_under_mouse = ((width*zonemap[k]) - arrw*.5f < g->mouse_x &&  (width*zonemap[k]) + arrw*.5f > g->mouse_x);
@@ -662,6 +663,8 @@ dt_iop_zonesystem_bar_leave_notify(GtkWidget *widget, GdkEventCrossing *event, d
 {
   dt_iop_zonesystem_gui_data_t *g = (dt_iop_zonesystem_gui_data_t *)self->gui_data;
   g->hilite_zone = FALSE;
+  g->mouse_x = 0;
+  g->mouse_y = 0;
   gtk_widget_queue_draw (g->preview);
   return TRUE;
 }
@@ -693,7 +696,7 @@ dt_iop_zonesystem_bar_motion_notify (GtkWidget *widget, GdkEventMotion *event, d
     }
   }
   else
-    g->hilite_zone = (g->mouse_y<(height/2.0))?TRUE:FALSE;
+    g->hilite_zone = (g->mouse_y > (height*(1.0 - DT_ZONESYSTEM_REFERENCE_SPLIT)));
 
   gtk_widget_queue_draw (self->widget);
   gtk_widget_queue_draw (g->preview);
