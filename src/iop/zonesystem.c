@@ -79,11 +79,14 @@ typedef struct dt_iop_zonesystem_gui_data_t
   int  preview_width,preview_height;
   GtkWidget *preview;
   GtkWidget   *zones;
+  GtkWidget   *options;
+  GtkWidget   *ow_showzonenumber;
   float press_x, press_y, mouse_x, mouse_y;
   gboolean hilite_zone;
   gboolean is_dragging;
   int current_zone;
   int zone_under_mouse;
+  int opt_showzonenumber;
   dt_pthread_mutex_t lock;
 }
 dt_iop_zonesystem_gui_data_t;
@@ -427,6 +430,7 @@ static gboolean dt_iop_zonesystem_bar_button_press(GtkWidget *widget, GdkEventBu
 static gboolean dt_iop_zonesystem_bar_button_release(GtkWidget *widget, GdkEventButton *event, dt_iop_module_t *self);
 static gboolean dt_iop_zonesystem_bar_scrolled(GtkWidget *widget, GdkEventScroll *event, dt_iop_module_t *self);
 
+static void dt_iop_zonesystem_opt_showzonenumber_toggled (GtkToggleButton *button, gpointer user_data);
 
 
 void gui_init(struct dt_iop_module_t *self)
@@ -437,6 +441,8 @@ void gui_init(struct dt_iop_module_t *self)
   g->is_dragging = FALSE;
   g->hilite_zone = FALSE;
   g->preview_width=g->preview_height=0;
+
+  g->opt_showzonenumber = dt_conf_get_bool("plugins/darkroom/zonesystem/opt_showzonenumber");
 
   dt_pthread_mutex_init(&g->lock, NULL);
 
@@ -462,11 +468,20 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_widget_add_events (GTK_WIDGET (g->zones), GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_LEAVE_NOTIFY_MASK);
   gtk_widget_set_size_request(g->zones, -1, 40);
 
+  /* create the options panel */
+  g->options = gtk_vbox_new(TRUE, DT_GUI_IOP_MODULE_CONTROL_SPACING);
+  g->ow_showzonenumber = gtk_check_button_new_with_label(_("show zones numbers"));
+  g_object_set (GTK_OBJECT(g->ow_showzonenumber), "tooltip-text", _("Show zones numbers on zones bar"), (char *)NULL);
+  g_signal_connect (G_OBJECT (g->ow_showzonenumber), "toggled", G_CALLBACK (dt_iop_zonesystem_opt_showzonenumber_toggled), self);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->ow_showzonenumber), g->opt_showzonenumber);
+  gtk_box_pack_start (GTK_BOX (g->options),g->ow_showzonenumber,TRUE,TRUE,0);
+
   GtkWidget *aspect = gtk_aspect_frame_new(NULL, .5f, .5f, 1.0f, FALSE);
   gtk_frame_set_shadow_type(GTK_FRAME(aspect), GTK_SHADOW_NONE);
   gtk_container_add(GTK_CONTAINER(aspect), g->preview);
   gtk_box_pack_start (GTK_BOX (self->widget),aspect,TRUE,TRUE,0);
   gtk_box_pack_start (GTK_BOX (self->widget),g->zones,TRUE,TRUE,0);
+  gtk_box_pack_start (GTK_BOX (self->widget),g->options,TRUE,TRUE,0);
 
   /* add signal handler for preview pipe finish to redraw the preview */
   dt_control_signal_connect(darktable.signals,
@@ -541,25 +556,28 @@ dt_iop_zonesystem_bar_expose (GtkWidget *widget, GdkEventExpose *event, dt_iop_m
     cairo_fill (cr);
 
     /* draw zone index */
-    cairo_move_to (cr, zs*(i + 0.5), 0.);
-    cairo_save(cr);
-    cairo_scale(cr,1./width,1./height);
-    snprintf(zoneStr, 4, "%d", i);
-    float t=z+0.4;
-    t = t < 1 ? t : 1-t;
-    cairo_set_source_rgb(cr,t,t,t);
-    cairo_select_font_face (cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size (cr, zoneFontSize);
-    cairo_text_extents (cr, zoneStr, &ext);
-    cairo_rel_move_to(cr, - ext.width/2, ext.height + 1);
-    cairo_show_text (cr, zoneStr);
-    // current adjusting zone index
-    if ((g->mouse_x > 0) && (zonemap[i] <= g->mouse_x/width) && (g->mouse_x/width <= zonemap[i+1]))
+    if (g->opt_showzonenumber)
     {
-      cairo_move_to(cr, (zonemap[i] + (zonemap[i+1]-zonemap[i])/2.0)*width - ext.width/2, height - 3);
+      cairo_move_to (cr, zs*(i + 0.5), 0.);
+      cairo_save(cr);
+      cairo_scale(cr,1./width,1./height);
+      snprintf(zoneStr, 4, "%d", i);
+      float t=z+0.4;
+      t = t < 1 ? t : 1-t;
+      cairo_set_source_rgb(cr,t,t,t);
+      cairo_select_font_face (cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+      cairo_set_font_size (cr, zoneFontSize);
+      cairo_text_extents (cr, zoneStr, &ext);
+      cairo_rel_move_to(cr, - ext.width/2, ext.height + 1);
       cairo_show_text (cr, zoneStr);
+      // current adjusting zone index
+      if ((g->mouse_x > 0) && (zonemap[i] <= g->mouse_x/width) && (g->mouse_x/width <= zonemap[i+1]))
+      {
+        cairo_move_to(cr, (zonemap[i] + (zonemap[i+1]-zonemap[i])/2.0)*width - ext.width/2, height - 3);
+        cairo_show_text (cr, zoneStr);
+      }
+      cairo_restore(cr);
     }
-    cairo_restore(cr);
   }
   cairo_set_antialias (cr, CAIRO_ANTIALIAS_DEFAULT);
   cairo_restore (cr);
@@ -807,6 +825,16 @@ void _iop_zonesystem_redraw_preview_callback(gpointer instance, gpointer user_da
   dt_iop_zonesystem_gui_data_t *g = (dt_iop_zonesystem_gui_data_t *)self->gui_data;
 
   dt_control_queue_redraw_widget(g->preview);
+}
+
+static void
+dt_iop_zonesystem_opt_showzonenumber_toggled (GtkToggleButton *button, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  dt_iop_zonesystem_gui_data_t *g = (dt_iop_zonesystem_gui_data_t *)self->gui_data;
+  g->opt_showzonenumber = gtk_toggle_button_get_active(button);
+  dt_conf_set_bool("plugins/darkroom/zonesystem/opt_showzonenumber", g->opt_showzonenumber);
+  dt_control_queue_redraw_widget(g->zones);
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
